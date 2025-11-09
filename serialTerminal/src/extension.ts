@@ -6,6 +6,7 @@ import { registerLogView } from './logView';
 import { registerScriptView } from './scriptView';
 import { registerReadOnlyDocument } from './readOnlyDcoument';
 import { registerSerialPortTerminalProfile } from './SerialTerminalProfileProvider';
+import { restoreSerialTerminals } from './serialPortTerminalManager';
 
 export var extensionContext: vscode.ExtensionContext;
 
@@ -18,6 +19,9 @@ export function activate(context: vscode.ExtensionContext) {
 	registerContextCallback(context);
 	registerReadOnlyDocument(context);
 	registerSerialPortTerminalProfile(context);
+	
+	// Restore previously opened serial terminals
+	restoreSerialTerminals(context);
 }
 
 export function deactivate() { }

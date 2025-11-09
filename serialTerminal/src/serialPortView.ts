@@ -1,9 +1,12 @@
 import * as vscode from "vscode";
-import { getConfigurations, configurationsReg, configurationsSettingId } from "./settingManager";
+import { getConfigurations, configurationsReg, configurationsSettingId, getRecentConfiguration, setRecentConfiguration } from "./settingManager";
 import { Event, ProviderResult, ThemeIcon, TreeDataProvider, TreeItem, l10n } from "vscode";
 import { listSerialPort, serialPortInfo2String } from "./serialPortTerminal";
 
+let extensionContext: vscode.ExtensionContext;
+
 function registerSerialPortView(context: vscode.ExtensionContext) {
+    extensionContext = context;
     context.subscriptions.push(
         vscode.window.registerTreeDataProvider("serialport.serialportView", serialPortProvider)
     );
@@ -21,7 +24,7 @@ const serialPortProvider = new (class implements TreeDataProvider<TreeItem> {
     }
     getChildren(element?: TreeItem | undefined): ProviderResult<TreeItem[]> {
         return new Promise((resolve, reject) => {
-            // 使用 serialport 模块获取可用的串口设备
+            // Use serialport module to get available serial ports
             listSerialPort()
                 .then((ports) => {
                     const treeItem = ports.map((port) => {
@@ -94,7 +97,11 @@ async function pickConfiguration(): Promise<
     }
 
     let matches = selection?.label.match(configurationsReg);
-    if (matches) {
+    if (matches && selection) {
+        // Save recently used configuration
+        if (extensionContext) {
+            setRecentConfiguration(extensionContext, selection.label);
+        }
         const [, baudrateStr, parityStr, dataBitsStr, stopBitsStr] = matches;
         let baudrate: number;
         let parity: 'none' | 'even' | 'odd' | undefined;
@@ -155,7 +162,23 @@ async function pickConfiguration(): Promise<
 
 function serialPortConfigurations(): Thenable<CommandQuickPickItem[]> {
     return new Promise((resolve, reject) => {
-        const items: CommandQuickPickItem[] = getConfigurations().map((value) => { return { label: value }; });
+        const configs = getConfigurations();
+        const recentConfig = extensionContext ? getRecentConfiguration(extensionContext) : undefined;
+        
+        // Put recently used configuration first
+        const sortedConfigs = [...configs];
+        if (recentConfig && configs.includes(recentConfig)) {
+            const index = sortedConfigs.indexOf(recentConfig);
+            sortedConfigs.splice(index, 1);
+            sortedConfigs.unshift(recentConfig);
+        }
+        
+        const items: CommandQuickPickItem[] = sortedConfigs.map((value, index) => { 
+            return { 
+                label: value,
+                description: index === 0 && value === recentConfig ? l10n.t("Recently used") : undefined
+            }; 
+        });
 
         let separator: CommandQuickPickItem[] = [{
             label: "",

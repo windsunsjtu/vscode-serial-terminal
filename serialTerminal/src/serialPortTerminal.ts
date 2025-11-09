@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import * as colors from 'colors';
 import * as fs from 'fs';
 import { SerialPort } from "serialport";
+import { StringDecoder } from 'string_decoder';
 import { getLogDefaultAddingTimeStamp, getLogDirUri } from "./settingManager";
 import { SerialPortConfiguration, pickConfiguration, pickSerialPort } from "./serialPortView";
 
@@ -55,6 +56,12 @@ interface ISerialPortTerminal {
 }
 
 class SerialPortTerminal implements ISerialPortTerminal {
+    private decoder: StringDecoder;
+    private logDecoder: StringDecoder;
+    private waitingForReconnect: boolean = false;
+    private portPath: string;
+    private portConfig!: SerialPortConfiguration;
+
     private constructor(serialPort: SerialPort, pseudo: boolean = false) {
         this.state = {
             loging: false,
@@ -62,15 +69,26 @@ class SerialPortTerminal implements ISerialPortTerminal {
             hex: false,
         };
         this.serialport = serialPort;
+        this.portPath = serialPort.path;
+        this.decoder = new StringDecoder('utf8');
+        this.logDecoder = new StringDecoder('utf8');
         let opts = pseudo ? { create: false } : undefined;
         this.terminal = new PseudoTerminal(terminalNamePrefix + serialPort.path, opts);
         this.init();
     }
 
     private init() {
-        this.terminal.setOnInput(
-            (data) => this.serialport.write(data)
-        );
+        this.terminal.setOnInput((data) => {
+            if (this.waitingForReconnect) {
+                if (data.toLowerCase() === 'r') {
+                    this.reconnect();
+                } else if (data.toLowerCase() === 'q') {
+                    this.terminal.close();
+                }
+                return;
+            }
+            this.serialport.write(data);
+        });
         this.terminal.setOnOpen(() => {
             this.terminal.write(this.serialport.isOpen ?
                 colors.green.bold(l10n.t('({0}) CONNECTED', this.serialport.path) + '\r\n\r\n')
@@ -81,13 +99,17 @@ class SerialPortTerminal implements ISerialPortTerminal {
             if (this.closeCallback) { this.closeCallback(); };
         });
 
-        this.serialport.addListener("data", (data) =>
-            this.terminal.write(data.toString())
-        );
+        this.serialport.addListener("data", (data: Buffer) => {
+            const text = this.decoder.write(data);
+            this.terminal.write(text);
+        });
 
         this.serialport.on("close", () => {
             this.terminal.write(colors.red.bold(
                 "\n" + l10n.t("({0}) CLOSED!", this.serialport.path) + '\r\n\r\n'));
+            this.terminal.write(colors.yellow(
+                l10n.t("Press 'r' to reconnect or 'q' to close terminal") + '\r\n'));
+            this.waitingForReconnect = true;
         }
         );
     }
@@ -96,7 +118,9 @@ class SerialPortTerminal implements ISerialPortTerminal {
         return new Promise<SerialPortTerminal>((resolve, reject) => {
             let serialPort: SerialPort;
             let openCallBack = () => {
-                resolve(new SerialPortTerminal(serialPort));
+                const terminal = new SerialPortTerminal(serialPort);
+                terminal.portConfig = cfg;
+                resolve(terminal);
             };
 
             /* bug: If dataBits is assigned to undefined, opening the serial port fails, so... */
@@ -128,6 +152,7 @@ class SerialPortTerminal implements ISerialPortTerminal {
             let serialPort: SerialPort;
             let openCallBack = () => {
                 const serialPortTerminal = new SerialPortTerminal(serialPort, true);
+                serialPortTerminal.portConfig = cfg;
                 if (serialPortTerminal.terminal.options) { resolve(serialPortTerminal); }
                 else { reject(); }
             };
@@ -165,6 +190,24 @@ class SerialPortTerminal implements ISerialPortTerminal {
         });
     }
 
+    private reconnect(): void {
+        this.waitingForReconnect = false;
+        this.terminal.write(colors.cyan(l10n.t('Reconnecting...') + '\r\n'));
+        
+        this.serialport.open((error) => {
+            if (error) {
+                this.terminal.write(colors.red.bold(
+                    l10n.t('({0}) RECONNECTION FAILED: {1}', this.serialport.path, error.message) + '\r\n\r\n'));
+                this.terminal.write(colors.yellow(
+                    l10n.t("Press 'r' to reconnect or 'q' to close terminal") + '\r\n'));
+                this.waitingForReconnect = true;
+            } else {
+                this.terminal.write(colors.green.bold(
+                    l10n.t('({0}) RECONNECTED', this.serialport.path) + '\r\n\r\n'));
+            }
+        });
+    }
+
     private getTime() {
         return new Date().toLocaleString('zh', {
             year: '2-digit',
@@ -198,16 +241,17 @@ class SerialPortTerminal implements ISerialPortTerminal {
     private getLogCallBack(logUri: vscode.Uri) {
         fs.writeFileSync(logUri.fsPath, "");
         if (this.state.timeStamp) {
-            return (data: any) => {
+            return (data: Buffer) => {
+                const text = this.logDecoder.write(data);
                 fs.appendFileSync(
                     logUri.fsPath,
-                    data.toString()
-                        .replaceAll('\r', '')
-                        .replaceAll('\n', '\n' + this.getTimeStamp()));
+                    text.replace(/\r/g, '')
+                        .replace(/\n/g, '\n' + this.getTimeStamp()));
             };
         } else {
-            return (data: any) => {
-                fs.appendFileSync(logUri.fsPath, data.toString().replaceAll('\r', ''));
+            return (data: Buffer) => {
+                const text = this.logDecoder.write(data);
+                fs.appendFileSync(logUri.fsPath, text.replace(/\r/g, ''));
             };
         }
     }
@@ -238,7 +282,7 @@ class SerialPortTerminal implements ISerialPortTerminal {
     terminal: PseudoTerminal;
 
     private logUri: vscode.Uri = vscode.Uri.file("");
-    private logCallBack: (data: any) => void = () => { };
+    private logCallBack: (data: Buffer) => void = () => { };
     private closeCallback?: () => void;
 }
 

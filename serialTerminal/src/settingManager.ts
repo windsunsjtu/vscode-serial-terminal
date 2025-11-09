@@ -12,6 +12,13 @@ const configurationsSettingId = 'SerialTerminal.serial port.configurations';
 const logSavePathSettingId = 'SerialTerminal.log.savePath';
 const scriptSavePathSettingId = 'SerialTerminal.script.savePath';
 const logDefaultAddingTimeStampSettingId = 'SerialTerminal.log.defaultAddingTimeStamp';
+const recentConfigurationsKey = 'SerialTerminal.recentConfigurations';
+const openTerminalsKey = 'SerialTerminal.openTerminals';
+
+interface SavedTerminalState {
+    portPath: string;
+    configuration: string;
+}
 
 
 function getConfigurations(): Array<string> {
@@ -38,6 +45,37 @@ function getScriptDirUri(): vscode.Uri {
 
 function getLogDefaultAddingTimeStamp(): boolean {
     return getSettingOrSetDefault(logDefaultAddingTimeStampSettingId, false);
+}
+
+function getRecentConfiguration(context: vscode.ExtensionContext): string | undefined {
+    return context.globalState.get<string>(recentConfigurationsKey);
+}
+
+function setRecentConfiguration(context: vscode.ExtensionContext, configuration: string): void {
+    context.globalState.update(recentConfigurationsKey, configuration);
+}
+
+function getOpenTerminals(context: vscode.ExtensionContext): SavedTerminalState[] {
+    return context.globalState.get<SavedTerminalState[]>(openTerminalsKey, []);
+}
+
+function setOpenTerminals(context: vscode.ExtensionContext, terminals: SavedTerminalState[]): void {
+    context.globalState.update(openTerminalsKey, terminals);
+}
+
+function addOpenTerminal(context: vscode.ExtensionContext, portPath: string, configuration: string): void {
+    const terminals = getOpenTerminals(context);
+    // Avoid duplicates
+    if (!terminals.find(t => t.portPath === portPath)) {
+        terminals.push({ portPath, configuration });
+        setOpenTerminals(context, terminals);
+    }
+}
+
+function removeOpenTerminal(context: vscode.ExtensionContext, portPath: string): void {
+    const terminals = getOpenTerminals(context);
+    const filtered = terminals.filter(t => t.portPath !== portPath);
+    setOpenTerminals(context, filtered);
 }
 
 function getSettingFolderOrSetDefault(section: string, defaultName: string): vscode.Uri {
@@ -71,4 +109,11 @@ export {
     getLogDirUri,
     getScriptDirUri,
     getLogDefaultAddingTimeStamp,
+    getRecentConfiguration,
+    setRecentConfiguration,
+    getOpenTerminals,
+    setOpenTerminals,
+    addOpenTerminal,
+    removeOpenTerminal,
+    SavedTerminalState,
 };
