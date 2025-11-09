@@ -37,6 +37,33 @@ This is a simple terminal interaction serial extension for vscode, it is still a
 
 - [x] Add configurable items
 
+- [x] MCP Server for AI assistant integration
+
+- [x] Auto-reconnect support
+
+- [x] Recent configurations prioritization
+
 - [ ] Serial port to send and display hex data
 
 - [ ] Support for X/Y/Zmodem protocols
+
+---
+
+## MCP Server Integration
+
+This extension now includes an **MCP (Model Context Protocol) server** that allows AI assistants like Claude to interact with your serial port terminals.
+
+### Key Features
+
+- **AI-Assisted Debugging**: Let AI analyze serial data and suggest solutions
+- **Automated Testing**: AI can send test commands and verify responses
+- **Log Analysis**: AI can review and interpret large amounts of serial output
+- **Human Control**: Only humans can open/close ports and configure settings
+
+### Quick Start
+
+1. Open a serial port terminal in VS Code (human action)
+2. Configure Claude Desktop or other MCP client (see [MCP_README.md](./MCP_README.md))
+3. AI can now list terminals, send commands, and read data
+
+For detailed setup instructions and usage examples, see **[MCP_README.md](./MCP_README.md)**

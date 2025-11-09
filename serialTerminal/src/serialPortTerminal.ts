@@ -5,6 +5,7 @@ import * as colors from 'colors';
 import * as fs from 'fs';
 import { SerialPort } from "serialport";
 import { StringDecoder } from 'string_decoder';
+import { EventEmitter } from 'events';
 import { getLogDefaultAddingTimeStamp, getLogDirUri } from "./settingManager";
 import { SerialPortConfiguration, pickConfiguration, pickSerialPort } from "./serialPortView";
 
@@ -53,6 +54,9 @@ interface ISerialPortTerminal {
     startLogging(timeStamp?: boolean): Promise<boolean>;
     stopLogging(): boolean;
     setCloseCallback(callback?: () => void): void;
+    onData(callback: (data: string) => void): () => void;
+    sendData(data: string): boolean;
+    getRecentData(lines: number): string[];
 }
 
 class SerialPortTerminal implements ISerialPortTerminal {
@@ -61,6 +65,9 @@ class SerialPortTerminal implements ISerialPortTerminal {
     private waitingForReconnect: boolean = false;
     private portPath: string;
     private portConfig!: SerialPortConfiguration;
+    private dataEmitter: EventEmitter;
+    private dataBuffer: string[] = [];
+    private readonly maxBufferLines: number = 1000;
 
     private constructor(serialPort: SerialPort, pseudo: boolean = false) {
         this.state = {
@@ -72,6 +79,7 @@ class SerialPortTerminal implements ISerialPortTerminal {
         this.portPath = serialPort.path;
         this.decoder = new StringDecoder('utf8');
         this.logDecoder = new StringDecoder('utf8');
+        this.dataEmitter = new EventEmitter();
         let opts = pseudo ? { create: false } : undefined;
         this.terminal = new PseudoTerminal(terminalNamePrefix + serialPort.path, opts);
         this.init();
@@ -101,7 +109,18 @@ class SerialPortTerminal implements ISerialPortTerminal {
 
         this.serialport.addListener("data", (data: Buffer) => {
             const text = this.decoder.write(data);
+            
+            // 1. Send to terminal (existing functionality)
             this.terminal.write(text);
+            
+            // 2. Broadcast to MCP listeners
+            this.dataEmitter.emit('data', text);
+            
+            // 3. Store in buffer for MCP access
+            this.dataBuffer.push(...text.split('\n'));
+            if (this.dataBuffer.length > this.maxBufferLines) {
+                this.dataBuffer = this.dataBuffer.slice(-this.maxBufferLines);
+            }
         });
 
         this.serialport.on("close", () => {
@@ -276,6 +295,24 @@ class SerialPortTerminal implements ISerialPortTerminal {
             l10n.t("The logs have been saved in {0}", this.logUri.fsPath));
         this.state.loging = false;
         return this.state.loging;
+    }
+
+    // MCP Server access methods
+    onData(callback: (data: string) => void): () => void {
+        this.dataEmitter.on('data', callback);
+        return () => this.dataEmitter.off('data', callback);
+    }
+
+    sendData(data: string): boolean {
+        if (!this.serialport.isOpen || this.waitingForReconnect) {
+            return false;
+        }
+        this.serialport.write(data);
+        return true;
+    }
+
+    getRecentData(lines: number): string[] {
+        return this.dataBuffer.slice(-lines);
     }
 
     serialport: SerialPort;
