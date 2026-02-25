@@ -56,11 +56,13 @@ function setRecentConfiguration(context: vscode.ExtensionContext, configuration:
 }
 
 function getOpenTerminals(context: vscode.ExtensionContext): SavedTerminalState[] {
-    return context.globalState.get<SavedTerminalState[]>(openTerminalsKey, []);
+    // Use workspaceState instead of globalState to keep terminals per workspace
+    return context.workspaceState.get<SavedTerminalState[]>(openTerminalsKey, []);
 }
 
 function setOpenTerminals(context: vscode.ExtensionContext, terminals: SavedTerminalState[]): void {
-    context.globalState.update(openTerminalsKey, terminals);
+    // Use workspaceState instead of globalState to keep terminals per workspace
+    context.workspaceState.update(openTerminalsKey, terminals);
 }
 
 function addOpenTerminal(context: vscode.ExtensionContext, portPath: string, configuration: string): void {
