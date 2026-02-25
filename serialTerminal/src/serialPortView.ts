@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { getConfigurations, configurationsReg, configurationsSettingId, getRecentConfiguration, setRecentConfiguration } from "./settingManager";
 import { Event, ProviderResult, ThemeIcon, TreeDataProvider, TreeItem, l10n } from "vscode";
-import { listSerialPort, serialPortInfo2String } from "./serialPortTerminal";
+import { listSerialPort, serialPortInfo2String, EnhancedPortInfo } from "./serialPortTerminal";
 
 let extensionContext: vscode.ExtensionContext;
 
@@ -28,9 +28,12 @@ const serialPortProvider = new (class implements TreeDataProvider<TreeItem> {
             listSerialPort()
                 .then((ports) => {
                     const treeItem = ports.map((port) => {
+                        const portAny = port as any;
+                        // Priority: busReportedDeviceDesc > friendlyName > manufacturer
+                        const description = portAny.busReportedDeviceDesc || portAny.friendlyName || port.manufacturer;
                         return {
                             label: port.path,
-                            description: (port as any).friendlyName || port.manufacturer,
+                            description: description,
                             tooltip: serialPortInfo2String(port),
                             iconPath: new ThemeIcon("plug"),
                         };
@@ -64,7 +67,10 @@ async function pickSerialPort(): Promise<string | undefined> {
     const serialPortItems: Thenable<vscode.QuickPickItem[]> = new Promise((resolve, reject) => {
         listSerialPort().then((ports) => {
             const portItems: vscode.QuickPickItem[] = ports.map((port) => {
-                return { label: port.path, description: port.manufacturer };
+                const portAny = port as any;
+                // Priority: busReportedDeviceDesc > friendlyName > manufacturer
+                const description = portAny.busReportedDeviceDesc || portAny.friendlyName || port.manufacturer;
+                return { label: port.path, description: description };
             });
             resolve(portItems);
         }).catch((error) => {

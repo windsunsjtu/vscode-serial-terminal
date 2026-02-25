@@ -4,6 +4,10 @@
   "({0}) CONNECTED": "{0} 已连接",
   "({0}) OPEN FAILED!": "{0} 打开失败!",
   "({0}) CLOSED!": "{0} 已断开!",
+  "Reconnecting...": "正在重连...",
+  "({0}) RECONNECTION FAILED: {1}": "{0} 重连失败: {1}",
+  "Press 'r' to reconnect or 'q' to close terminal": "按 'r' 重新连接或按 'q' 关闭终端",
+  "({0}) RECONNECTED": "{0} 已重新连接",
   "$(plug) Serial Terminal": "$(plug) 串口终端",
   "Open a serial port on terminal": "在终端打开一个串口",
   "Log path error: ": "日志保存路径错误: ",
@@ -21,5 +25,6 @@
   "SerialNumber": "序列号",
   "PnpId": "即插即用ID",
   "LocationId": "硬件路径ID",
+  "BusReportedDeviceDesc": "总线报告设备描述",
   "Adding a new serial port configuration": "添加新的串口配置"
 }
