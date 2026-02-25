@@ -162,7 +162,7 @@ export class IPCServer {
     private async handleReadBuffer(req: http.IncomingMessage, res: http.ServerResponse) {
         try {
             const body = await this.readRequestBody(req);
-            const { port, lines = 50 } = JSON.parse(body);
+            const { port, lines = 50, offset = 0 } = JSON.parse(body);
 
             if (!port) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -180,13 +180,22 @@ export class IPCServer {
                 return;
             }
 
-            const buffer = terminal.getRecentData(lines);
+            const buffer = terminal.getRecentData(lines, offset);
+            const bufferInfo = terminal.getBufferInfo();
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 port,
-                lines: buffer.length,
-                data: buffer
+                total_lines: bufferInfo.totalLines,
+                returned_lines: buffer.length,
+                offset: offset,
+                has_more: offset + lines < bufferInfo.totalLines,
+                buffer_size: bufferInfo.maxBufferLines,
+                data: buffer,
+                metadata: {
+                    baud_rate: terminal.serialport.baudRate,
+                    is_open: terminal.serialport.isOpen,
+                }
             }));
         } catch (error: any) {
             res.writeHead(500, { 'Content-Type': 'application/json' });

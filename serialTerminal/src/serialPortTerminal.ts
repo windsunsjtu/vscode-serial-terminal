@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import { SerialPort } from "serialport";
 import { StringDecoder } from 'string_decoder';
 import { EventEmitter } from 'events';
-import { getLogDefaultAddingTimeStamp, getLogDirUri } from "./settingManager";
+import { getLogDefaultAddingTimeStamp, getLogDirUri, getMcpBufferSize } from "./settingManager";
 import { SerialPortConfiguration, pickConfiguration, pickSerialPort } from "./serialPortView";
 
 const terminalNamePrefix = "PORT: ";
@@ -56,7 +56,8 @@ interface ISerialPortTerminal {
     setCloseCallback(callback?: () => void): void;
     onData(callback: (data: string) => void): () => void;
     sendData(data: string): boolean;
-    getRecentData(lines: number): string[];
+    getRecentData(lines: number, offset?: number): string[];
+    getBufferInfo(): { totalLines: number; maxBufferLines: number; };
 }
 
 class SerialPortTerminal implements ISerialPortTerminal {
@@ -67,9 +68,10 @@ class SerialPortTerminal implements ISerialPortTerminal {
     private portConfig!: SerialPortConfiguration;
     private dataEmitter: EventEmitter;
     private dataBuffer: string[] = [];
-    private readonly maxBufferLines: number = 1000;
+    private readonly maxBufferLines: number;
 
     private constructor(serialPort: SerialPort, pseudo: boolean = false) {
+        this.maxBufferLines = getMcpBufferSize();
         this.state = {
             loging: false,
             timeStamp: getLogDefaultAddingTimeStamp(),
@@ -311,8 +313,20 @@ class SerialPortTerminal implements ISerialPortTerminal {
         return true;
     }
 
-    getRecentData(lines: number): string[] {
-        return this.dataBuffer.slice(-lines);
+    getRecentData(lines: number, offset: number = 0): string[] {
+        // offset=0 means get the latest lines
+        // offset=50 means skip the latest 50 lines and get the next 'lines' lines
+        const totalLines = this.dataBuffer.length;
+        const start = Math.max(0, totalLines - offset - lines);
+        const end = totalLines - offset;
+        return this.dataBuffer.slice(start, end);
+    }
+
+    getBufferInfo(): { totalLines: number; maxBufferLines: number; } {
+        return {
+            totalLines: this.dataBuffer.length,
+            maxBufferLines: this.maxBufferLines,
+        };
     }
 
     serialport: SerialPort;

@@ -271,6 +271,14 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "%configurations.log.defaultAddingTimeStamp.description%"
+        },
+        "SerialTerminal.mcp.bufferSize": {
+          "title": "MCP Buffer Size",
+          "type": "number",
+          "default": 5000,
+          "minimum": 100,
+          "maximum": 50000,
+          "markdownDescription": "Maximum number of lines to keep in the serial port data buffer for MCP access. Larger values use more memory but preserve more history. Default: 5000 lines (~250-500KB)"
         }
       }
     }

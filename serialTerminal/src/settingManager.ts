@@ -12,6 +12,7 @@ const configurationsSettingId = 'SerialTerminal.serial port.configurations';
 const logSavePathSettingId = 'SerialTerminal.log.savePath';
 const scriptSavePathSettingId = 'SerialTerminal.script.savePath';
 const logDefaultAddingTimeStampSettingId = 'SerialTerminal.log.defaultAddingTimeStamp';
+const mcpBufferSizeSettingId = 'SerialTerminal.mcp.bufferSize';
 const recentConfigurationsKey = 'SerialTerminal.recentConfigurations';
 const openTerminalsKey = 'SerialTerminal.openTerminals';
 
@@ -45,6 +46,10 @@ function getScriptDirUri(): vscode.Uri {
 
 function getLogDefaultAddingTimeStamp(): boolean {
     return getSettingOrSetDefault(logDefaultAddingTimeStampSettingId, false);
+}
+
+function getMcpBufferSize(): number {
+    return getSettingOrSetDefault(mcpBufferSizeSettingId, 5000);
 }
 
 function getRecentConfiguration(context: vscode.ExtensionContext): string | undefined {
@@ -111,6 +116,7 @@ export {
     getLogDirUri,
     getScriptDirUri,
     getLogDefaultAddingTimeStamp,
+    getMcpBufferSize,
     getRecentConfiguration,
     setRecentConfiguration,
     getOpenTerminals,
