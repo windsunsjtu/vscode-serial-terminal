@@ -6,6 +6,7 @@ import { serialPortTerminalManager } from "./serialPortTerminalManager";
 import { setSerialPortTernimalRecordingLog } from './contextManager';
 import { l10n } from 'vscode';
 import { getLogDirUri, getScriptDirUri, logSettingId, scriptSettingId, serialPortSettingId } from './settingManager';
+import { refreshMcpProvider } from './mcpProvider';
 
 function registerCommands(context: vscode.ExtensionContext) {
     context.subscriptions.push(
@@ -114,6 +115,16 @@ function registerCommands(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "serialTerminal.clearTerminal",
             clearTerminal,
+        )
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "serialTerminal.refreshMcpProvider",
+            () => {
+                refreshMcpProvider();
+                vscode.window.showInformationMessage('MCP provider refresh triggered. Please reload the Copilot chat window.');
+            }
         )
     );
 

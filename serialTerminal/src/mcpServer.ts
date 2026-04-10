@@ -92,6 +92,7 @@ class IPCClient {
             });
 
             req.on('error', (err) => {
+                this.port = 0; // Reset cache — VS Code may have restarted with a new port
                 reject(new Error(`IPC request failed: ${err.message}. Make sure Serial Terminal extension is running.`));
             });
 
@@ -137,18 +138,28 @@ class SerialTerminalMcpServer {
         this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
             tools: [
                 {
-                    name: 'serial_terminal_list_terminals',
+                    name: 'list_terminals',
                     description: 'List all currently open serial port terminals in VS Code with their status and configuration',
                     inputSchema: {
                         type: 'object',
+                        properties: {},
+                    },
+                    outputSchema: {
+                        type: 'object',
                         properties: {
-                            response_format: {
-                                type: 'string',
-                                enum: ['json', 'markdown'],
-                                description: 'Response format (json for programmatic processing, markdown for human readability)',
-                                default: 'json',
-                            },
-                        },
+                            terminals: {
+                                type: 'array',
+                                items: {
+                                    type: 'object',
+                                    properties: {
+                                        name: { type: 'string', description: 'Terminal display name' },
+                                        port: { type: 'string', description: 'Port path (e.g., COM13, /dev/ttyUSB0)' },
+                                        isOpen: { type: 'boolean', description: 'Connection status' },
+                                        baudRate: { type: 'number', description: 'Baud rate (e.g., 115200)' }
+                                    }
+                                }
+                            }
+                        }
                     },
                     annotations: {
                         readOnlyHint: true,
@@ -158,7 +169,7 @@ class SerialTerminalMcpServer {
                     },
                 },
                 {
-                    name: 'serial_terminal_send_command',
+                    name: 'send_command',
                     description: 'Send a command string to an open serial port terminal and receive immediate response',
                     inputSchema: {
                         type: 'object',
@@ -178,14 +189,24 @@ class SerialTerminalMcpServer {
                                 description: 'Add newline character (\\n) at the end of command',
                                 default: true,
                             },
-                            response_format: {
-                                type: 'string',
-                                enum: ['json', 'markdown'],
-                                description: 'Response format (json for programmatic processing, markdown for human readability)',
-                                default: 'markdown',
+                            timeout: {
+                                type: 'number',
+                                description: 'Max milliseconds to wait for device response. Use higher values (e.g. 2000) for slow devices or Modbus commands.',
+                                default: 500,
+                                minimum: 100,
+                                maximum: 10000,
                             },
                         },
                         required: ['port', 'command'],
+                    },
+                    outputSchema: {
+                        type: 'object',
+                        properties: {
+                            port: { type: 'string', description: 'Port name' },
+                            command: { type: 'string', description: 'Command sent' },
+                            newline_added: { type: 'boolean', description: 'Whether newline was added' },
+                            recent_output: { type: 'string', description: 'Recent output from the device' }
+                        }
                     },
                     annotations: {
                         readOnlyHint: false,
@@ -195,7 +216,7 @@ class SerialTerminalMcpServer {
                     },
                 },
                 {
-                    name: 'serial_terminal_read_buffer',
+                    name: 'read_buffer',
                     description: 'Read recent data from a serial port terminal buffer with pagination support',
                     inputSchema: {
                         type: 'object',
@@ -217,14 +238,40 @@ class SerialTerminalMcpServer {
                                 default: 0,
                                 minimum: 0,
                             },
-                            response_format: {
-                                type: 'string',
-                                enum: ['json', 'markdown'],
-                                description: 'Response format (json for programmatic processing, markdown for human readability)',
-                                default: 'json',
-                            },
                         },
                         required: ['port'],
+                    },
+                    outputSchema: {
+                        type: 'object',
+                        properties: {
+                            port: { type: 'string', description: 'Port name' },
+                            total_lines: { type: 'number', description: 'Total lines in buffer' },
+                            returned_lines: { type: 'number', description: 'Number of lines returned' },
+                            offset: { type: 'number', description: 'Offset used' },
+                            limit: { type: 'number', description: 'Limit used' },
+                            has_more: { type: 'boolean', description: 'Whether more data is available' },
+                            buffer_size: { type: 'number', description: 'Maximum buffer capacity' },
+                            metadata: {
+                                type: 'object',
+                                properties: {
+                                    baud_rate: { type: 'number', description: 'Current baud rate' },
+                                    is_open: { type: 'boolean', description: 'Connection status' }
+                                }
+                            },
+                            data: {
+                                type: 'array',
+                                items: { type: 'string' },
+                                description: 'Array of text lines from buffer'
+                            },
+                            pagination: {
+                                type: 'object',
+                                properties: {
+                                    next_offset: { type: 'number', description: 'Offset for next page' },
+                                    suggestion: { type: 'string', description: 'Human-readable pagination hint' }
+                                },
+                                description: 'Pagination info (null if no more data)'
+                            }
+                        }
                     },
                     annotations: {
                         readOnlyHint: true,
@@ -242,35 +289,32 @@ class SerialTerminalMcpServer {
 
             try {
                 switch (name) {
-                    case 'serial_terminal_list_terminals':
-                        return await this.listTerminals(
-                            args?.response_format as string || 'json'
-                        );
+                    case 'list_terminals':
+                        return await this.listTerminals();
 
-                    case 'serial_terminal_send_command':
+                    case 'send_command':
                         if (!args) {
                             throw new Error('Missing arguments');
                         }
                         return await this.sendCommand(
                             args.port as string,
                             args.command as string,
-                            args.add_newline as boolean ?? true,
-                            args.response_format as string || 'markdown'
+                            (args.add_newline as boolean) ?? true,
+                            (args.timeout as number) ?? 500
                         );
 
-                    case 'serial_terminal_read_buffer':
+                    case 'read_buffer':
                         if (!args) {
                             throw new Error('Missing arguments');
                         }
                         return await this.readBuffer(
                             args.port as string,
                             args.limit as number ?? 50,
-                            args.offset as number ?? 0,
-                            args.response_format as string || 'json'
+                            args.offset as number ?? 0
                         );
 
                     default:
-                        throw new Error(`Unknown tool: ${name}. Available tools: serial_terminal_list_terminals, serial_terminal_send_command, serial_terminal_read_buffer`);
+                        throw new Error(`Unknown tool: ${name}. Available tools: list_terminals, send_command, read_buffer`);
                 }
             } catch (error) {
                 return {
@@ -284,7 +328,7 @@ class SerialTerminalMcpServer {
         });
     }
 
-    private async listTerminals(responseFormat: string = 'json') {
+    private async listTerminals() {
         try {
             const response = await this.ipcClient.request('/list-terminals', 'GET');
             const terminals = response.terminals || [];
@@ -293,46 +337,36 @@ class SerialTerminalMcpServer {
                 return {
                     content: [{
                         type: 'text',
-                        text: 'No serial port terminals are currently open. Open a serial port in VS Code first using the Serial Terminal extension.',
+                        text: 'No serial port terminals are currently open. Open a serial port in VS Code Serial Terminal first.',
                     }],
                 };
             }
 
-            let text: string;
-            if (responseFormat === 'markdown') {
-                text = '# Serial Port Terminals\n\n';
-                terminals.forEach((t: any, index: number) => {
-                    text += `## ${index + 1}. ${t.name}\n`;
-                    text += `- **Port**: ${t.port}\n`;
-                    text += `- **Status**: ${t.isOpen ? '🟢 Connected' : '🔴 Disconnected'}\n`;
-                    text += `- **Baud Rate**: ${t.baudRate || 'N/A'}\n\n`;
-                });
-            } else {
-                // JSON format
-                text = JSON.stringify({
-                    total: terminals.length,
-                    terminals: terminals
-                }, null, 2);
-            }
-            
+            const terminalList = terminals.map((t: any) => 
+                `  - ${t.port || t.name || t}${t.baudRate ? ` @ ${t.baudRate}` : ''}${t.isOpen === false ? ' (closed)' : ''}`
+            ).join('\n');
+
             return {
                 content: [{
                     type: 'text',
-                    text: text,
+                    text: `Found ${terminals.length} serial port terminal${terminals.length > 1 ? 's' : ''}:\n${terminalList}`,
                 }],
+                _meta: {
+                    terminals
+                }
             };
         } catch (error: any) {
             return {
                 content: [{
                     type: 'text',
-                    text: `Error connecting to Serial Terminal extension: ${error.message}\n\nMake sure:\n1. VS Code is running\n2. Serial Terminal extension is installed and activated\n3. At least one serial port terminal is open`,
+                    text: `Error connecting to Serial Terminal extension: ${error.message}\n\nNext steps:\n1. Ensure VS Code is running\n2. Verify Serial Terminal extension is installed and activated\n3. Open at least one serial port terminal`,
                 }],
                 isError: true,
             };
         }
     }
 
-    private async sendCommand(port: string, command: string, addNewline: boolean, responseFormat: string = 'markdown') {
+    private async sendCommand(port: string, command: string, addNewline: boolean, timeout: number = 500) {
         try {
             // Validate inputs
             if (!port || port.trim().length === 0) {
@@ -348,45 +382,40 @@ class SerialTerminalMcpServer {
             const response = await this.ipcClient.request('/send-command', 'POST', {
                 port,
                 command,
-                addNewline
+                addNewline,
+                timeout
             });
-            
-            let text: string;
-            if (responseFormat === 'markdown') {
-                text = `# Command Sent to ${port}\n\n`;
-                text += `**Command**: \`${command}\`\n`;
-                text += `**Newline Added**: ${addNewline ? 'Yes' : 'No'}\n\n`;
-                text += `## Recent Output\n\n\`\`\`\n${response.recentOutput}\n\`\`\``;
-            } else {
-                // JSON format
-                text = JSON.stringify({
-                    success: true,
-                    port: port,
-                    command: command,
-                    newline_added: addNewline,
-                    recent_output: response.recentOutput
-                }, null, 2);
-            }
+
+            const recentOutput: string = typeof response.recentOutput === 'string' ? response.recentOutput : '';
+            const recentText = recentOutput && recentOutput !== '(No response yet)'
+                ? `\n\nRecent output:\n${recentOutput}`
+                : '\n\n(No output yet — use read_buffer to check later)';
 
             return {
                 content: [{
                     type: 'text',
-                    text: text,
+                    text: `Command "${command}" sent to ${port}${recentText}`,
                 }],
+                _meta: {
+                    port,
+                    command,
+                    newline_added: addNewline,
+                    recent_output: recentOutput
+                }
             };
         } catch (error: any) {
             // Enhanced error handling
             let errorMessage = `Error sending command to ${port}: ${error.message}\n\n`;
             
             if (error.message.includes('not open')) {
-                errorMessage += '**Suggestions:**\n';
-                errorMessage += '1. Use `serial_terminal_list_terminals` to see available ports\n';
-                errorMessage += '2. Open the port in VS Code Serial Terminal extension first\n';
+                errorMessage += 'Next steps:\n';
+                errorMessage += '1. Use `list_terminals` to see available ports\n';
+                errorMessage += '2. Open the port in VS Code Serial Terminal first\n';
                 errorMessage += '3. Check if the port name is correct (e.g., COM8 on Windows)';
             } else if (error.message.includes('IPC request failed')) {
-                errorMessage += '**Suggestions:**\n';
-                errorMessage += '1. Make sure VS Code is running\n';
-                errorMessage += '2. Ensure Serial Terminal extension is installed\n';
+                errorMessage += 'Next steps:\n';
+                errorMessage += '1. Ensure VS Code is running\n';
+                errorMessage += '2. Verify Serial Terminal extension is installed\n';
                 errorMessage += '3. Try reloading VS Code window';
             }
 
@@ -400,11 +429,11 @@ class SerialTerminalMcpServer {
         }
     }
 
-    private async readBuffer(port: string, limit: number, offset: number, responseFormat: string = 'json') {
+    private async readBuffer(port: string, limit: number, offset: number) {
         try {
             // Validate inputs
             if (!port || port.trim().length === 0) {
-                throw new Error('Port name cannot be empty. Use serial_terminal_list_terminals to see available ports.');
+                throw new Error('Port name cannot be empty. Use list_terminals to see available ports.');
             }
             if (limit < 1 || limit > 1000) {
                 throw new Error('Limit must be between 1 and 1000 lines');
@@ -425,7 +454,7 @@ class SerialTerminalMcpServer {
                 return {
                     content: [{
                         type: 'text',
-                        text: `Buffer for ${port} is empty. No data has been received yet. Send a command using serial_terminal_send_command to start receiving data.`,
+                        text: `Buffer for ${port} is empty. Send a command to start receiving data.`,
                     }],
                 };
             }
@@ -434,61 +463,48 @@ class SerialTerminalMcpServer {
                 return {
                     content: [{
                         type: 'text',
-                        text: `No data at offset ${offset}. Total lines in buffer: ${response.total_lines}. Try a smaller offset value.`,
+                        text: `No data at offset ${offset}. Total buffer has ${response.total_lines} lines. Try a smaller offset.`,
                     }],
                 };
             }
 
-            let text: string;
-            if (responseFormat === 'markdown') {
-                text = `# Serial Buffer Data - ${port}\n\n`;
-                text += `**Port**: ${port}\n`;
-                text += `**Baud Rate**: ${response.metadata?.baud_rate || 'N/A'}\n`;
-                text += `**Status**: ${response.metadata?.is_open ? '🟢 Connected' : '🔴 Disconnected'}\n`;
-                text += `**Total Lines**: ${response.total_lines} / ${response.buffer_size} (max)\n`;
-                text += `**Showing**: Lines ${offset + 1} to ${offset + buffer.length} (${buffer.length} lines)\n`;
-                text += `**More Data**: ${response.has_more ? 'Yes' : 'No'}\n\n`;
-                
-                if (response.has_more) {
-                    text += `*💡 Tip: Use offset=${offset + limit} to read the next ${limit} lines*\n\n`;
-                }
-                
-                text += `## Data\n\n\`\`\`\n${buffer.join('\n')}\n\`\`\``;
-            } else {
-                // JSON format
-                text = JSON.stringify({
-                    port: port,
+            const paginationInfo = response.has_more ? {
+                next_offset: offset + limit,
+                suggestion: `Use offset=${offset + limit} and limit=${limit} to get next page`
+            } : null;
+
+            const dataText = buffer.join('\n');
+            const summaryLine = `Retrieved ${buffer.length} lines from ${port} (${response.total_lines} total, offset ${offset})`;
+            const fullText = `${summaryLine}\n\n${dataText}`;
+
+            return {
+                content: [{
+                    type: 'text',
+                    text: fullText,
+                }],
+                _meta: {
+                    port,
                     total_lines: response.total_lines,
                     returned_lines: buffer.length,
-                    offset: offset,
-                    limit: limit,
+                    offset,
+                    limit,
                     has_more: response.has_more,
                     buffer_size: response.buffer_size,
                     metadata: response.metadata,
                     data: buffer,
-                    pagination: response.has_more ? {
-                        next_offset: offset + limit,
-                        suggestion: `Use offset=${offset + limit} and limit=${limit} to get next page`
-                    } : null
-                }, null, 2);
-            }
-            
-            return {
-                content: [{
-                    type: 'text',
-                    text: text,
-                }],
+                    pagination: paginationInfo
+                }
             };
         } catch (error: any) {
             let errorMessage = `Error reading buffer from ${port}: ${error.message}\n\n`;
             
             if (error.message.includes('not open')) {
-                errorMessage += '**Suggestions:**\n';
-                errorMessage += '1. Use `serial_terminal_list_terminals` to see available ports\n';
+                errorMessage += 'Next steps:\n';
+                errorMessage += '1. Use `list_terminals` to see available ports\n';
                 errorMessage += '2. Open the port in VS Code first\n';
-                errorMessage += '3. Check if the port name is correct';
+                errorMessage += '3. Verify the port name is correct';
             } else if (error.message.includes('IPC request failed')) {
-                errorMessage += '**Suggestions:**\n';
+                errorMessage += 'Next steps:\n';
                 errorMessage += '1. Ensure Serial Terminal extension is running in VS Code\n';
                 errorMessage += '2. Try reloading VS Code window';
             }

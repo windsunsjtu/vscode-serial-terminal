@@ -232,6 +232,11 @@
         "command": "doSomething",
         "icon": "$(play)",
         "title": "Serial Terminal test: do something"
+      },
+      {
+        "command": "serialTerminal.refreshMcpProvider",
+        "icon": "$(refresh)",
+        "title": "Serial Terminal: Refresh MCP Provider"
       }
     ],
     "configuration": {

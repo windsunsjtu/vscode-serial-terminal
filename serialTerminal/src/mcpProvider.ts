@@ -57,6 +57,9 @@ export class SerialTerminalMcpProvider {
     }
 }
 
+// Global instance of the MCP provider for refresh operations
+let mcpProviderInstance: SerialTerminalMcpProvider | undefined;
+
 /**
  * Register the MCP server provider with VS Code
  */
@@ -70,6 +73,7 @@ export function registerMcpProvider(context: vscode.ExtensionContext): vscode.Di
     }
 
     const provider = new SerialTerminalMcpProvider(context);
+    mcpProviderInstance = provider; // Save for refresh operations
     
     try {
         // Register the provider with VS Code's MCP infrastructure
@@ -83,5 +87,18 @@ export function registerMcpProvider(context: vscode.ExtensionContext): vscode.Di
     } catch (error) {
         console.error('Failed to register MCP server provider:', error);
         return undefined;
+    }
+}
+
+/**
+ * Manually trigger MCP server definition refresh
+ * Useful for forcing VS Code to reload server definitions after updates
+ */
+export function refreshMcpProvider(): void {
+    if (mcpProviderInstance) {
+        console.log('Triggering MCP provider refresh...');
+        mcpProviderInstance.refresh();
+    } else {
+        console.warn('MCP provider instance not available for refresh');
     }
 }

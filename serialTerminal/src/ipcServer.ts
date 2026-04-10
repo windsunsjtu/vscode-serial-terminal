@@ -103,7 +103,7 @@ export class IPCServer {
     private async handleSendCommand(req: http.IncomingMessage, res: http.ServerResponse) {
         try {
             const body = await this.readRequestBody(req);
-            const { port, command, addNewline = true } = JSON.parse(body);
+            const { port, command, addNewline = true, timeout = 500 } = JSON.parse(body);
 
             if (!port || !command) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -131,6 +131,9 @@ export class IPCServer {
                 ? command + '\n'
                 : command;
 
+            // Record buffer length before sending
+            const totalBefore = terminal.getBufferInfo().totalLines;
+
             const success = terminal.sendData(dataToSend);
 
             if (!success) {
@@ -139,19 +142,40 @@ export class IPCServer {
                 return;
             }
 
-            // Wait a bit for potential response
-            await new Promise(resolve => setTimeout(resolve, 100));
+            // Smart wait: poll until response data arrives and settles, or timeout
+            const maxWait = Math.min(Math.max(timeout, 100), 10000);
+            const deadline = Date.now() + maxWait;
+            let lastGrowthTime = 0;
+            let lastTotal = totalBefore;
 
-            // Get recent data
-            const recentData = terminal.getRecentData(20);
-            const responseText = recentData.slice(-10).join('\n');
+            while (Date.now() < deadline) {
+                await new Promise(resolve => setTimeout(resolve, 25));
+                const currentTotal = terminal.getBufferInfo().totalLines;
+                if (currentTotal !== lastTotal) {
+                    lastGrowthTime = Date.now();
+                    lastTotal = currentTotal;
+                }
+                // Stop once data has settled for 80ms
+                if (lastGrowthTime > 0 && Date.now() - lastGrowthTime > 80) {
+                    break;
+                }
+            }
+
+            // Fetch lines that arrived after the command (handle buffer wrap-around)
+            const totalAfter = terminal.getBufferInfo().totalLines;
+            const newLines = totalAfter >= totalBefore
+                ? totalAfter - totalBefore
+                : totalAfter; // buffer wrapped around
+            const fetchLines = newLines > 0 ? Math.min(newLines + 5, 200) : 20;
+            const recentData = terminal.getRecentData(fetchLines);
+            const responseText = recentData.join('\n');
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 success: true,
                 port,
                 command,
-                recentOutput: responseText || '(No response yet)'
+                recentOutput: responseText || '(No response)'
             }));
         } catch (error: any) {
             res.writeHead(500, { 'Content-Type': 'application/json' });

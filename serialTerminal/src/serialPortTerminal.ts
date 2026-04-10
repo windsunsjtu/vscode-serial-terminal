@@ -221,6 +221,7 @@ class SerialPortTerminal implements ISerialPortTerminal {
     private portConfig!: SerialPortConfiguration;
     private dataEmitter: EventEmitter;
     private dataBuffer: string[] = [];
+    private lineBuffer: string = '';  // Accumulates incomplete line data
     private readonly maxBufferLines: number;
 
     private constructor(serialPort: SerialPort, pseudo: boolean = false) {
@@ -272,9 +273,28 @@ class SerialPortTerminal implements ISerialPortTerminal {
             this.dataEmitter.emit('data', text);
             
             // 3. Store in buffer for MCP access
-            this.dataBuffer.push(...text.split('\n'));
-            if (this.dataBuffer.length > this.maxBufferLines) {
-                this.dataBuffer = this.dataBuffer.slice(-this.maxBufferLines);
+            // Accumulate data in lineBuffer until we have complete lines
+            this.lineBuffer += text;
+            
+            // Split by carriage return (\r) which marks line endings in serial terminals
+            // Note: \n may appear in the middle of lines (e.g., echo), \r is the true line delimiter
+            const lines = this.lineBuffer.split('\r');
+            
+            if (lines.length > 1) {
+                // Keep the last incomplete line in the buffer
+                this.lineBuffer = lines[lines.length - 1];
+                
+                // Add all complete lines (excluding the last incomplete one)
+                // Clean ANSI sequences and trim whitespace
+                const completeLines = lines.slice(0, -1)
+                    .map(line => this.cleanLine(line))
+                    .filter(line => line.length > 0);
+                this.dataBuffer.push(...completeLines);
+                
+                // Maintain buffer size limit
+                if (this.dataBuffer.length > this.maxBufferLines) {
+                    this.dataBuffer = this.dataBuffer.slice(-this.maxBufferLines);
+                }
             }
         });
 
@@ -453,6 +473,28 @@ class SerialPortTerminal implements ISerialPortTerminal {
     }
 
     // MCP Server access methods
+    /**
+     * Clean line data by removing ANSI escape sequences and trimming whitespace
+     * @param line Raw line data from serial port
+     * @returns Cleaned line with ANSI codes removed and whitespace trimmed
+     */
+    private cleanLine(line: string): string {
+        // Remove ANSI escape sequences
+        // Pattern matches:
+        // - CSI sequences: ESC [ ... (letter)
+        // - OSC sequences: ESC ] ... (BEL or ESC \)
+        // - Simple sequences: ESC (letter)
+        // eslint-disable-next-line no-control-regex
+        const ansiPattern = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g;
+        
+        let cleaned = line.replace(ansiPattern, '');
+        
+        // Remove leading/trailing newlines and whitespace
+        cleaned = cleaned.replace(/^\n+/, '').replace(/\n+$/, '').trim();
+        
+        return cleaned;
+    }
+
     onData(callback: (data: string) => void): () => void {
         this.dataEmitter.on('data', callback);
         return () => this.dataEmitter.off('data', callback);
